@@ -1,13 +1,13 @@
 #include "main.h"
 #include "stdio.h"
 
-#define LCD_EN GPIO_PIN_7
-#define LCD_RS GPIO_PIN_6
-#define LCD_D4 GPIO_PIN_8
-#define LCD_D5 GPIO_PIN_9
-#define LCD_D6 GPIO_PIN_10
-#define LCD_D7 GPIO_PIN_11
-#define Button GPIO_PIN_12
+#define LCD_EN GPIO_PIN_7 //LCD Enable Pin
+#define LCD_RS GPIO_PIN_6 //LCD Read Pin
+#define LCD_D4 GPIO_PIN_8 //LCD Pin 4
+#define LCD_D5 GPIO_PIN_9 //LCD Pin 5
+#define LCD_D6 GPIO_PIN_10 //LCD Pin 6
+#define LCD_D7 GPIO_PIN_11 //LCD Pin 7
+#define Button GPIO_PIN_12 //External Button
 
 void LCD_STROBE()
 {
@@ -17,6 +17,7 @@ void LCD_STROBE()
 	HAL_Delay(0.1);
 }
 
+//characters for LCD
 void lcd_write_cmd(unsigned char c)
 {
 	unsigned int d;
@@ -76,6 +77,7 @@ void lcd_putch(char c)
 	LCD_STROBE();
 }
 
+//where to put the cursor for the LCD
 void lcd_goto(int col, int row)
 {
 	char address;
@@ -85,6 +87,7 @@ void lcd_goto(int col, int row)
 	lcd_write_cmd(0x80 | address);
 }
 
+//Initiates the LCD
 void lcd_init(void)
 {
 	GPIOB->ODR = 0;
@@ -116,18 +119,18 @@ void display_cross_countdown()
     lcd_goto(6, 0); // Adjust the column for centering based on LCD size
     lcd_puts("CROSS");
 
-    // 5-second delay before starting the countdown
+    // 3-second delay before starting the countdown
     HAL_Delay(3000);
 
     // Countdown from 10 to 1 on the second line
     for (int i = 10; i >= 1; i--) {
-        lcd_goto(8, 1); // Adjust the column for centering based on LCD size
+        lcd_goto(8, 1); 
         lcd_puts("  "); // Clear previous countdown characters
         lcd_goto(8, 1); // Move back to the same position
         char buffer[3];
         snprintf(buffer, sizeof(buffer), "%d", i); // Safely format countdown number
         lcd_puts(buffer);
-        HAL_Delay(1200); // 1.5-second delay for countdown
+        HAL_Delay(1200); // 1.2-second delay for countdown
     }
 
     // When countdown reaches 0, blink the 0
@@ -137,12 +140,12 @@ void display_cross_countdown()
         	lcd_goto(5,0);
         	lcd_puts("  STOP    ");
         	lcd_goto(8,1);
-            lcd_puts("0"); // Display "0"
+            	lcd_puts("0"); // Display "0"
         } else {
         	lcd_goto(8,1);
-            lcd_puts(" "); // Clear the display (blinking effect)
+            	lcd_puts(" "); // Clear the display (blinking effect)
         }
-        HAL_Delay(800); // Half-second delay to blink
+        HAL_Delay(800); // 0.8 second delay to blink
     }
 
     // Replace "CROSS" with "STOP" on the top line
