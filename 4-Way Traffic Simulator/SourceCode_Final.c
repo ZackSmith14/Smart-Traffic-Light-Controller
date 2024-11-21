@@ -7,9 +7,12 @@
 #include "main.h"
 
 /* Private define ------------------------------------------------------------*/
-#define 	TRIG_PIN 				GPIO_PIN_8       // Define Trigger pin as PA8
+
+#define 	TRIG1_PIN 				GPIO_PIN_1       // Define Trigger pin as PA8
+#define 	TRIG2_PIN 				GPIO_PIN_8       // Define Trigger pin as PA8
 #define 	TRIG_PORT 				GPIOA           // Define Trigger port as GPIOA
-#define 	ECHO_PIN 				GPIO_PIN_9       // Define Echo pin as PA9
+#define 	ECHO1_PIN 				GPIO_PIN_4       // Define Echo pin as PA9
+#define 	ECHO2_PIN 				GPIO_PIN_9       // Define Echo pin as PA9
 #define 	ECHO_PORT 				GPIOA           // Define Echo port as GPIOA
 
 #define 	LED_PORT 				GPIOA
@@ -45,7 +48,8 @@ extern 		TIM_HandleTypeDef 		htim3;
 
 /* Private function prototypes -----------------------------------------------*/
 void 		delayMicroseconds(uint32_t us);
-uint32_t 	measureDistance(void);
+uint32_t 	measureDistanceSensor1(void);
+uint32_t 	measureDistanceSensor2(void);
 void 		UpdateTrafficLights(void);
 void 		ShowCommands(void);
 void 		UART_TransmitString(UART_HandleTypeDef *p_huart, char a_string[], int newline);
@@ -65,7 +69,8 @@ void 		waiting_for_pedestrian(void);
 /* Private variables */
 volatile char 						rxData;
 volatile int 						traffic_mode = DEFAULT_MODE;
-uint32_t 							distance;
+uint32_t 							distance1;
+uint32_t 							distance2;
 
 /* Initialization function */
 void App_Init(void) {
@@ -79,13 +84,13 @@ void App_Init(void) {
     ShowCommands();
 
     // Initialize HC-SR04 sensor GPIO
-    GPIO_InitStruct.Pin = TRIG_PIN;
+    GPIO_InitStruct.Pin = TRIG1_PIN | TRIG2_PIN;
     GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
     HAL_GPIO_Init(TRIG_PORT, &GPIO_InitStruct);
 
-    GPIO_InitStruct.Pin = ECHO_PIN;
+    GPIO_InitStruct.Pin = ECHO1_PIN | ECHO2_PIN;
     GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
     HAL_GPIO_Init(ECHO_PORT, &GPIO_InitStruct);
 
@@ -105,15 +110,21 @@ void App_Init(void) {
 
 void App_MainLoop(void) {
     char buffer[50];  // Buffer for UART output
-    distance = measureDistance();
+    distance1 = measureDistanceSensor1();
+    distance2 = measureDistanceSensor2();
 
     // Transmit distance over UART for monitoring
-    int len = snprintf(buffer, sizeof(buffer), "Distance: %lu cm\r\n", distance);
-    HAL_UART_Transmit(&huart2, (uint8_t*)buffer, len, HAL_MAX_DELAY);
+    int len1 = snprintf(buffer, sizeof(buffer), "Distance from Sensor 1: %lu cm\r\n", distance1);
+    int len2 = snprintf(buffer, sizeof(buffer), "Distance from Sensor 2: %lu cm\r\n", distance2);
+    HAL_UART_Transmit(&huart2, (uint8_t*)buffer, len1, HAL_MAX_DELAY);
+    HAL_UART_Transmit(&huart2, (uint8_t*)buffer, len2, HAL_MAX_DELAY);
 
     switch (traffic_mode) {
         case DEFAULT_MODE:
-            if (distance < 10 || HAL_GPIO_ReadPin(GPIOB, Button) == 0) {
+            if (distance1 < 10 || HAL_GPIO_ReadPin(GPIOB, Button) == 0) {
+                traffic_mode = TRANSITION;
+            }
+            else if (distance2 < 10 || HAL_GPIO_ReadPin(GPIOB, Button) == 0) {
                 traffic_mode = TRANSITION;
             }
             break;
@@ -305,26 +316,49 @@ void UART_TransmitString(UART_HandleTypeDef *p_huart, char a_string[], int newli
 }
 
 /* Measure distance using HC-SR04 */
-uint32_t measureDistance(void) {
-uint32_t localTime = 0;
-uint32_t startTime = 0;
+uint32_t measureDistanceSensor1(void) {
+uint32_t localTimeSensor1 = 0;
+uint32_t startTimeSensor1 = 0;
 
-    // Trigger the sensor
-    HAL_GPIO_WritePin(TRIG_PORT, TRIG_PIN, GPIO_PIN_SET);
+    // Trigger Sensor 1
+    HAL_GPIO_WritePin(TRIG_PORT, TRIG1_PIN, GPIO_PIN_SET);
     delayMicroseconds(10);
-    HAL_GPIO_WritePin(TRIG_PORT, TRIG_PIN, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(TRIG_PORT, TRIG1_PIN, GPIO_PIN_RESET);
 
-    // Wait for ECHO pin to go HIGH
-    while (!(HAL_GPIO_ReadPin(ECHO_PORT, ECHO_PIN)));
+    // Wait for ECHO1 pin to go HIGH
+    while (!(HAL_GPIO_ReadPin(ECHO_PORT, ECHO1_PIN)));
 
-    // Record the time ECHO is HIGH
-    startTime = __HAL_TIM_GET_COUNTER(&htim2);
-    while (HAL_GPIO_ReadPin(ECHO_PORT, ECHO_PIN)) {
-        localTime = __HAL_TIM_GET_COUNTER(&htim2) - startTime;
+    // Record the time ECHO1 is HIGH
+    startTimeSensor1 = __HAL_TIM_GET_COUNTER(&htim2);
+    while (HAL_GPIO_ReadPin(ECHO_PORT, ECHO1_PIN)) {
+        localTimeSensor1 = __HAL_TIM_GET_COUNTER(&htim2) - startTimeSensor1;
     }
 
     // Calculate distance (speed of sound: 34300 cm/s)
-    return (localTime * 0.034 / 2);
+    return (localTimeSensor1 * 0.034 / 2);
+}
+
+/* Measure distance using HC-SR04 */
+uint32_t measureDistanceSensor2(void) {
+uint32_t localTimeSensor2 = 0;
+uint32_t startTimeSensor2 = 0;
+
+    // Trigger Sensor 2
+    HAL_GPIO_WritePin(TRIG_PORT, TRIG2_PIN, GPIO_PIN_SET);
+    delayMicroseconds(10);
+    HAL_GPIO_WritePin(TRIG_PORT, TRIG2_PIN, GPIO_PIN_RESET);
+
+    // Wait for ECHO2 pin to go HIGH
+    while (!(HAL_GPIO_ReadPin(ECHO_PORT, ECHO2_PIN)));
+
+    // Record the time ECHO2 is HIGH
+    startTimeSensor2 = __HAL_TIM_GET_COUNTER(&htim2);
+    while (HAL_GPIO_ReadPin(ECHO_PORT, ECHO2_PIN)) {
+        localTimeSensor2 = __HAL_TIM_GET_COUNTER(&htim2) - startTimeSensor2;
+    }
+
+    // Calculate distance (speed of sound: 34300 cm/s)
+    return (localTimeSensor2 * 0.034 / 2);
 }
 
 void delayMicroseconds(uint32_t us) {
@@ -565,18 +599,3 @@ void waiting_for_pedestrian(void)
 	    lcd_goto(3, 0);
 	    lcd_puts("DO NOT CROSS");
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
