@@ -1,0 +1,231 @@
+/* Includes ------------------------------------------------------------------*/
+#include "stdio.h"
+#include "stdlib.h"
+#include "string.h"
+#include "stm32l4xx_hal.h"
+#include "app.h"
+
+/* Private define ------------------------------------------------------------*/
+#define TRIG_PIN GPIO_PIN_8       // Define Trigger pin as PA8
+#define TRIG_PORT GPIOA           // Define Trigger port as GPIOA
+#define ECHO_PIN GPIO_PIN_9       // Define Echo pin as PA9
+#define ECHO_PORT GPIOA           // Define Echo port as GPIOA
+
+#define LED_PORT GPIOA
+#define LED0_PIN GPIO_PIN_5  // Main road red light
+#define LED1_PIN GPIO_PIN_6  // Main road yellow light
+#define LED2_PIN GPIO_PIN_7  // Main road green light
+#define LED3_PIN GPIO_PIN_8
+
+#define LED4_PIN GPIO_PIN_10 // Secondary road red light
+#define LED5_PIN GPIO_PIN_11 // Secondary road yellow light
+#define LED6_PIN GPIO_PIN_12 // Secondary road green light
+#define LED7_PIN GPIO_PIN_13
+
+/* Traffic light states */
+#define MAIN_ROAD_GREEN        0
+#define MAIN_ROAD_YELLOW       1
+#define MAIN_ROAD_RED          2
+#define SECONDARY_ROAD_GREEN   3
+#define SECONDARY_ROAD_YELLOW  4
+#define SECONDARY_ROAD_RED     5
+
+extern UART_HandleTypeDef huart2;
+extern TIM_HandleTypeDef htim2;
+
+/* Private function prototypes -----------------------------------------------*/
+void delayMicroseconds(uint32_t us);
+uint32_t measureDistance(void);
+void UpdateTrafficLights(void);
+void ShowCommands(void);
+void UART_TransmitString(UART_HandleTypeDef *p_huart, char a_string[], int newline);
+
+/* Private variables */
+volatile char rxData;
+volatile int trafficState = MAIN_ROAD_GREEN;
+uint32_t distance;
+
+/* Initialization function */
+void App_Init(void) {
+    GPIO_InitTypeDef GPIO_InitStruct = {0};
+
+    // Initialize UART for debugging
+    UART_TransmitString(&huart2, "Traffic Light System Initialized", 1);
+
+    // Initialize HC-SR04 sensor GPIO
+    GPIO_InitStruct.Pin = TRIG_PIN;
+    GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(TRIG_PORT, &GPIO_InitStruct);
+
+    GPIO_InitStruct.Pin = ECHO_PIN;
+    GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+    HAL_GPIO_Init(ECHO_PORT, &GPIO_InitStruct);
+
+    // Initialize traffic light LEDs as output
+    GPIO_InitStruct.Pin = LED0_PIN | LED1_PIN | LED2_PIN | LED4_PIN | LED5_PIN | LED6_PIN;
+    GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+    HAL_GPIO_Init(LED_PORT, &GPIO_InitStruct);
+
+    // Start UART and Timer
+    HAL_UART_Receive_IT(&huart2, (uint8_t*)&rxData, 1);
+    HAL_TIM_Base_Start(&htim2);
+
+    // Show initial state of traffic lights
+    UpdateTrafficLights();
+}
+
+/* Main loop */
+void App_MainLoop(void) {
+    char buffer[50];  // Buffer for UART output
+    distance = measureDistance();
+
+    // Transmit distance over UART for monitoring
+    int len = snprintf(buffer, sizeof(buffer), "Distance: %lu cm\r\n", distance);
+    HAL_UART_Transmit(&huart2, (uint8_t*)buffer, len, HAL_MAX_DELAY);
+
+    // Check for vehicle presence on the main road
+    if (distance < 10) {  // If vehicle is detected within 10 cm
+        trafficState = MAIN_ROAD_YELLOW;
+    }
+
+    // Manage traffic light state transitions
+    switch (trafficState) {
+        case MAIN_ROAD_GREEN:
+            if (distance < 10) {
+                trafficState = MAIN_ROAD_YELLOW;
+            }
+            break;
+        case MAIN_ROAD_YELLOW:
+            HAL_Delay(2000);  // Keep yellow light on for 2 seconds
+            trafficState = MAIN_ROAD_RED;
+            break;
+        case MAIN_ROAD_RED:
+            HAL_Delay(5000);  // Keep main road red for 5 seconds
+            trafficState = SECONDARY_ROAD_GREEN;
+            break;
+        case SECONDARY_ROAD_GREEN:
+            HAL_Delay(5000);  // Allow secondary road traffic to pass
+            trafficState = SECONDARY_ROAD_YELLOW;
+            break;
+        case SECONDARY_ROAD_YELLOW:
+            HAL_Delay(2000);  // Yellow transition for secondary road
+            trafficState = MAIN_ROAD_GREEN;
+            break;
+    }
+
+    // Update traffic lights based on the current state
+    UpdateTrafficLights();
+    HAL_Delay(500);  // Delay to avoid flooding the UART with distance readings
+}
+
+/* Update Traffic Lights based on State */
+void UpdateTrafficLights(void) {
+    // Reset all lights
+    HAL_GPIO_WritePin(LED_PORT, LED0_PIN | LED1_PIN | LED2_PIN | LED4_PIN | LED5_PIN | LED6_PIN, GPIO_PIN_RESET);
+
+    switch (trafficState) {
+        case MAIN_ROAD_GREEN:
+            HAL_GPIO_WritePin(LED_PORT, LED2_PIN, GPIO_PIN_SET); // Main road green
+            HAL_GPIO_WritePin(LED_PORT, LED4_PIN, GPIO_PIN_SET); // Secondary road red
+            break;
+        case MAIN_ROAD_YELLOW:
+            HAL_GPIO_WritePin(LED_PORT, LED1_PIN, GPIO_PIN_SET); // Main road yellow
+            HAL_GPIO_WritePin(LED_PORT, LED4_PIN, GPIO_PIN_SET); // Secondary road red
+            break;
+        case MAIN_ROAD_RED:
+            HAL_GPIO_WritePin(LED_PORT, LED0_PIN, GPIO_PIN_SET); // Main road red
+            HAL_GPIO_WritePin(LED_PORT, LED4_PIN, GPIO_PIN_SET); // Secondary road red
+            break;
+        case SECONDARY_ROAD_GREEN:
+            HAL_GPIO_WritePin(LED_PORT, LED0_PIN, GPIO_PIN_SET); // Main road red
+            HAL_GPIO_WritePin(LED_PORT, LED6_PIN, GPIO_PIN_SET); // Secondary road green
+            break;
+        case SECONDARY_ROAD_YELLOW:
+            HAL_GPIO_WritePin(LED_PORT, LED0_PIN, GPIO_PIN_SET); // Main road red
+            HAL_GPIO_WritePin(LED_PORT, LED5_PIN, GPIO_PIN_SET); // Secondary road yellow
+            break;
+    }
+}
+
+/* Show Commands over UART */
+void ShowCommands(void) {
+    UART_TransmitString(&huart2, "Type on keyboard to send command from PC to MCU:", 1);
+    UART_TransmitString(&huart2, "Letter Inputs are case sensitive", 1);
+    UART_TransmitString(&huart2, "> 1: Changes main road to green, 2: Changes secondary road to green", 1);
+    UART_TransmitString(&huart2, "> F: Changes main road to flashing yellow, f: changes secondary road to flashing yellow", 1);
+}
+
+/* UART Callback Function */
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *p_huart) {
+    HAL_GPIO_WritePin(LED_PORT, LED0_PIN, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(LED_PORT, LED1_PIN, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(LED_PORT, LED2_PIN, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(LED_PORT, LED4_PIN, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(LED_PORT, LED5_PIN, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(LED_PORT, LED6_PIN, GPIO_PIN_RESET);
+
+    // Process the data received from UART
+    switch (rxData) {
+        case 'F':
+            trafficState = MAIN_ROAD_YELLOW;
+            break;
+        case 'f':
+            trafficState = SECONDARY_ROAD_YELLOW;
+            break;
+        case 'g':
+            trafficState = MAIN_ROAD_GREEN;
+            break;
+        case 'G':
+            trafficState = SECONDARY_ROAD_GREEN;
+            break;
+        case 'A':
+        case 'a':
+            trafficState = MAIN_ROAD_RED;  // Stop all traffic
+            break;
+        case 'H':
+        case 'h':
+            ShowCommands();
+            break;
+    }
+    HAL_UART_Receive_IT(p_huart, (uint8_t*)&rxData, 1); // Restart the Rx interrupt
+}
+
+/* UART Transmit String */
+void UART_TransmitString(UART_HandleTypeDef *p_huart, char a_string[], int newline)
+{
+    HAL_UART_Transmit(p_huart, (uint8_t*) a_string, strlen(a_string), HAL_MAX_DELAY);
+    if (newline != 0) {
+        HAL_UART_Transmit(p_huart, (uint8_t*) "\n\r", 2, HAL_MAX_DELAY);
+    }
+}
+
+/* Measure distance using HC-SR04 */
+uint32_t measureDistance(void) {
+    uint32_t start_time, stop_time, pulse_duration;
+    uint32_t timeout = 100000;
+
+    HAL_GPIO_WritePin(TRIG_PORT, TRIG_PIN, GPIO_PIN_SET);
+    delayMicroseconds(10);
+    HAL_GPIO_WritePin(TRIG_PORT, TRIG_PIN, GPIO_PIN_RESET);
+
+    while (HAL_GPIO_ReadPin(ECHO_PORT, ECHO_PIN) == GPIO_PIN_RESET) {
+        if (timeout-- == 0) return 0;
+    }
+    start_time = __HAL_TIM_GET_COUNTER(&htim2);
+    timeout = 100000;
+    while (HAL_GPIO_ReadPin(ECHO_PORT, ECHO_PIN) == GPIO_PIN_SET) {
+        if (timeout-- == 0) return 0;
+    }
+    stop_time = __HAL_TIM_GET_COUNTER(&htim2);
+    pulse_duration = stop_time - start_time;
+    uint32_t distance_cm = pulse_duration / 58;
+
+    return distance_cm;
+}
+
+void delayMicroseconds(uint32_t us) {
+    __HAL_TIM_SET_COUNTER(&htim2, 0);
+    while (__HAL_TIM_GET_COUNTER(&htim2) < us);
+}
