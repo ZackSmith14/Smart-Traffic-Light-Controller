@@ -109,22 +109,23 @@ void App_Init(void) {
 }
 
 void App_MainLoop(void) {
-    char buffer[50];  // Buffer for UART output
+    char buffer1[50];  // Buffer for UART Sensor 1 output
+    char buffer2[50];  // Buffer for UART Sensor 2 output
     distance1 = measureDistanceSensor1();
     distance2 = measureDistanceSensor2();
 
     // Transmit distance over UART for monitoring
-    int len1 = snprintf(buffer, sizeof(buffer), "Distance from Sensor 1: %lu cm\r\n", distance1);
-    int len2 = snprintf(buffer, sizeof(buffer), "Distance from Sensor 2: %lu cm\r\n", distance2);
-    HAL_UART_Transmit(&huart2, (uint8_t*)buffer, len1, HAL_MAX_DELAY);
-    HAL_UART_Transmit(&huart2, (uint8_t*)buffer, len2, HAL_MAX_DELAY);
+    int len1 = snprintf(buffer1, sizeof(buffer1), "Distance from Sensor 1: %lu cm\r\n", distance1);
+    int len2 = snprintf(buffer2, sizeof(buffer2), "Distance from Sensor 2: %lu cm\r\n", distance2);
+    HAL_UART_Transmit(&huart2, (uint8_t*)buffer1, len1, HAL_MAX_DELAY);
+    HAL_UART_Transmit(&huart2, (uint8_t*)buffer2, len2, HAL_MAX_DELAY);
 
     switch (traffic_mode) {
         case DEFAULT_MODE:
-            if (distance1 < 10 || HAL_GPIO_ReadPin(GPIOB, Button) == 0) {
+            if (distance1 < 5 || HAL_GPIO_ReadPin(GPIOB, Button) == 0) {
                 traffic_mode = TRANSITION;
             }
-            else if (distance2 < 10 || HAL_GPIO_ReadPin(GPIOB, Button) == 0) {
+            else if (distance2 < 5 || HAL_GPIO_ReadPin(GPIOB, Button) == 0) {
                 traffic_mode = TRANSITION;
             }
             break;
