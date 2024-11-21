@@ -99,15 +99,6 @@ void App_MainLoop(void) {
         	UpdateTrafficLights();
         	traffic_mode = DEFAULT_MODE;  // Reset to default mode after the cycle
             break;
-        case POLE1_RED_FLASHING:
-        	UpdateTrafficLights();
-            break;
-        case POLE2_RED_FLASHING:
-        	UpdateTrafficLights();
-            break;
-        case ALL_RED:
-        	UpdateTrafficLights();
-            break;
     }
     HAL_Delay(500);  // Delay to avoid flooding the UART with distance readings
 }
@@ -183,38 +174,9 @@ void UpdateTrafficLights(void) {
             break;
 
         case POLE1_RED_FLASHING:
-            HAL_GPIO_TogglePin(LED_PORT, LED0_PIN); // Flash Pole 1 Red
-            HAL_GPIO_TogglePin(LED_PORT, LED5_PIN); // Pole 2 Yellow
-            HAL_GPIO_WritePin(LED_PORT, LED1_PIN, GPIO_PIN_RESET);
-            HAL_GPIO_WritePin(LED_PORT, LED2_PIN, GPIO_PIN_RESET);
-            HAL_GPIO_WritePin(LED_PORT, LED4_PIN, GPIO_PIN_RESET);
-            HAL_GPIO_WritePin(LED_PORT, LED6_PIN, GPIO_PIN_RESET);
-            HAL_Delay(2000);
-            break;
-
         case POLE2_RED_FLASHING:
-            HAL_GPIO_TogglePin(LED_PORT, LED4_PIN); // Flash Pole 2 Red
-            HAL_GPIO_TogglePin(LED_PORT, LED1_PIN); // Pole 1 Yellow
-            HAL_GPIO_WritePin(LED_PORT, LED0_PIN, GPIO_PIN_RESET);
-            HAL_GPIO_WritePin(LED_PORT, LED2_PIN, GPIO_PIN_RESET);
-            HAL_GPIO_WritePin(LED_PORT, LED5_PIN, GPIO_PIN_RESET);
-            HAL_GPIO_WritePin(LED_PORT, LED6_PIN, GPIO_PIN_RESET);
-            HAL_Delay(2000);
-            break;
-
         case ALL_RED:
-            HAL_GPIO_TogglePin(LED_PORT, LED4_PIN); // Flash Pole 2 Red
-            HAL_GPIO_TogglePin(LED_PORT, LED0_PIN); // Flash Pole 1 Red
-            HAL_GPIO_WritePin(LED_PORT, LED1_PIN, GPIO_PIN_RESET);
-            HAL_GPIO_WritePin(LED_PORT, LED2_PIN, GPIO_PIN_RESET);
-            HAL_GPIO_WritePin(LED_PORT, LED5_PIN, GPIO_PIN_RESET);
-            HAL_GPIO_WritePin(LED_PORT, LED6_PIN, GPIO_PIN_RESET);
-            HAL_Delay(2000);
-            break;
-
-        default:
-            // Handle unexpected states
-            traffic_mode = DEFAULT_MODE;
+        	// Lights handled in the timer interrupt callback
             break;
     }
 }
@@ -230,13 +192,43 @@ void ShowCommands(void) {
     UART_TransmitString(&huart2, "H/h: Show commands", 1);
 }
 
+/* Timer Callback */
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *p_htim) {
-	// Handle LED flashing with TIM3
-	if (p_htim == &htim3) {
-		if (traffic_mode == POLE1_RED_FLASHING) {
-			UpdateTrafficLights();
-		}
-	}
+    if (p_htim == &htim3) {
+        // Handle LED flashing
+        switch (traffic_mode) {
+            case POLE1_RED_FLASHING:
+            	HAL_GPIO_TogglePin(LED_PORT, LED0_PIN); // Flash Pole 1 Red
+            	HAL_GPIO_TogglePin(LED_PORT, LED5_PIN); // Pole 2 Yellow
+            	HAL_GPIO_WritePin(LED_PORT, LED1_PIN, GPIO_PIN_RESET);
+            	HAL_GPIO_WritePin(LED_PORT, LED2_PIN, GPIO_PIN_RESET);
+            	HAL_GPIO_WritePin(LED_PORT, LED4_PIN, GPIO_PIN_RESET);
+            	HAL_GPIO_WritePin(LED_PORT, LED6_PIN, GPIO_PIN_RESET);
+                break;
+
+            case POLE2_RED_FLASHING:
+            	HAL_GPIO_TogglePin(LED_PORT, LED4_PIN); // Flash Pole 2 Red
+            	HAL_GPIO_TogglePin(LED_PORT, LED1_PIN); // Pole 1 Yellow
+            	HAL_GPIO_WritePin(LED_PORT, LED0_PIN, GPIO_PIN_RESET);
+            	HAL_GPIO_WritePin(LED_PORT, LED2_PIN, GPIO_PIN_RESET);
+            	HAL_GPIO_WritePin(LED_PORT, LED5_PIN, GPIO_PIN_RESET);
+            	HAL_GPIO_WritePin(LED_PORT, LED6_PIN, GPIO_PIN_RESET);
+                break;
+
+            case ALL_RED:
+            	HAL_GPIO_TogglePin(LED_PORT, LED4_PIN); // Flash Pole 2 Red
+            	HAL_GPIO_TogglePin(LED_PORT, LED0_PIN); // Flash Pole 1 Red
+            	HAL_GPIO_WritePin(LED_PORT, LED1_PIN, GPIO_PIN_RESET);
+            	HAL_GPIO_WritePin(LED_PORT, LED2_PIN, GPIO_PIN_RESET);
+            	HAL_GPIO_WritePin(LED_PORT, LED5_PIN, GPIO_PIN_RESET);
+            	HAL_GPIO_WritePin(LED_PORT, LED6_PIN, GPIO_PIN_RESET);
+                break;
+
+            default:
+                // No flashing logic required for other modes
+                break;
+        }
+    }
 }
 
 /* UART Callback Function */
