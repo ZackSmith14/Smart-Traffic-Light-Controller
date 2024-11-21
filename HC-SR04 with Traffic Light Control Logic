@@ -1,0 +1,308 @@
+/* Includes ------------------------------------------------------------------*/
+#include "stdio.h"
+#include "stdlib.h"
+#include "string.h"
+#include "stm32l4xx_hal.h"
+#include "app.h"
+
+/* Private define ------------------------------------------------------------*/
+#define TRIG_PIN GPIO_PIN_8       // Define Trigger pin as PA8
+#define TRIG_PORT GPIOA           // Define Trigger port as GPIOA
+#define ECHO_PIN GPIO_PIN_9       // Define Echo pin as PA9
+#define ECHO_PORT GPIOA           // Define Echo port as GPIOA
+
+#define LED_PORT GPIOA
+#define LED0_PIN GPIO_PIN_5  // Main road red light
+#define LED1_PIN GPIO_PIN_6  // Main road yellow light
+#define LED2_PIN GPIO_PIN_7  // Main road green light
+
+#define LED4_PIN GPIO_PIN_10 // Secondary road red light
+#define LED5_PIN GPIO_PIN_11 // Secondary road yellow light
+#define LED6_PIN GPIO_PIN_12 // Secondary road green light
+
+/* Traffic light states */
+// Main road Clear, the secondary red
+#define 	DEFAULT_MODE			0
+// Yellow for main road after sensor detected positive, or prompted to change light
+#define 	TRANSITION 	1
+#define 	POLE1_RED_FLASHING	40
+#define 	POLE2_RED_FLASHING	41
+#define 	ALL_RED 42
+
+extern UART_HandleTypeDef huart2;
+extern TIM_HandleTypeDef htim2;
+extern TIM_HandleTypeDef htim3;
+
+/* Private function prototypes -----------------------------------------------*/
+void delayMicroseconds(uint32_t us);
+uint32_t measureDistance(void);
+void UpdateTrafficLights(void);
+void ShowCommands(void);
+void UART_TransmitString(UART_HandleTypeDef *p_huart, char a_string[], int newline);
+
+/* Private variables */
+volatile char rxData;
+volatile int traffic_mode = DEFAULT_MODE;
+uint32_t distance;
+
+/* Initialization function */
+void App_Init(void) {
+    GPIO_InitTypeDef GPIO_InitStruct = {0};
+
+    // Initialize UART for debugging
+    UART_TransmitString(&huart2, "Traffic Light System Initialized", 1);
+    UART_TransmitString(&huart2, "-----------------", 1);
+    UART_TransmitString(&huart2, "~ Nucleo-L476RG ~", 1);
+    UART_TransmitString(&huart2, "-----------------", 1);
+    ShowCommands();
+
+    // Initialize HC-SR04 sensor GPIO
+    GPIO_InitStruct.Pin = TRIG_PIN;
+    GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(TRIG_PORT, &GPIO_InitStruct);
+
+    GPIO_InitStruct.Pin = ECHO_PIN;
+    GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+    HAL_GPIO_Init(ECHO_PORT, &GPIO_InitStruct);
+
+    // Initialize traffic light LEDs as output
+    GPIO_InitStruct.Pin = LED0_PIN | LED1_PIN | LED2_PIN | LED4_PIN | LED5_PIN | LED6_PIN;
+    GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+    HAL_GPIO_Init(LED_PORT, &GPIO_InitStruct);
+
+    // Start UART and Timer
+    HAL_UART_Receive_IT(&huart2, (uint8_t*)&rxData, 1);
+    HAL_TIM_Base_Start_IT(&htim2);
+    HAL_TIM_Base_Start_IT(&htim3);
+
+    // Show initial state of traffic lights
+    UpdateTrafficLights();
+}
+
+void App_MainLoop(void) {
+    char buffer[50];  // Buffer for UART output
+    distance = measureDistance();
+
+    // Transmit distance over UART for monitoring
+    int len = snprintf(buffer, sizeof(buffer), "Distance: %lu cm\r\n", distance);
+    HAL_UART_Transmit(&huart2, (uint8_t*)buffer, len, HAL_MAX_DELAY);
+
+    switch (traffic_mode) {
+        case DEFAULT_MODE:
+            if (distance < 10) {
+                traffic_mode = TRANSITION;
+            }
+            break;
+        case TRANSITION:
+        	UpdateTrafficLights();
+        	traffic_mode = DEFAULT_MODE;  // Reset to default mode after the cycle
+            break;
+        case POLE1_RED_FLASHING:
+        	UpdateTrafficLights();
+            break;
+        case POLE2_RED_FLASHING:
+        	UpdateTrafficLights();
+            break;
+        case ALL_RED:
+        	UpdateTrafficLights();
+            break;
+    }
+    HAL_Delay(500);  // Delay to avoid flooding the UART with distance readings
+}
+
+/* Update Traffic Lights based on State */
+void UpdateTrafficLights(void) {
+    // Reset all lights
+    HAL_GPIO_WritePin(LED_PORT, LED0_PIN | LED1_PIN | LED2_PIN | LED4_PIN | LED5_PIN | LED6_PIN, GPIO_PIN_RESET);
+
+    switch (traffic_mode) {
+        case DEFAULT_MODE:
+        	HAL_GPIO_WritePin(LED_PORT, LED0_PIN, GPIO_PIN_RESET);
+        	HAL_GPIO_WritePin(LED_PORT, LED1_PIN, GPIO_PIN_RESET);
+        	HAL_GPIO_WritePin(LED_PORT, LED2_PIN, GPIO_PIN_SET);
+        	HAL_GPIO_WritePin(LED_PORT, LED4_PIN, GPIO_PIN_SET);
+        	HAL_GPIO_WritePin(LED_PORT, LED5_PIN, GPIO_PIN_RESET);
+        	HAL_GPIO_WritePin(LED_PORT, LED6_PIN, GPIO_PIN_RESET);
+            break;
+
+        case TRANSITION:
+        	// Pole 1 yellow, Pole 2 red
+            HAL_GPIO_WritePin(LED_PORT, LED0_PIN, GPIO_PIN_RESET);
+            HAL_GPIO_WritePin(LED_PORT, LED1_PIN, GPIO_PIN_SET);
+            HAL_GPIO_WritePin(LED_PORT, LED2_PIN, GPIO_PIN_RESET);
+            HAL_GPIO_WritePin(LED_PORT, LED4_PIN, GPIO_PIN_SET);
+            HAL_GPIO_WritePin(LED_PORT, LED5_PIN, GPIO_PIN_RESET);
+            HAL_GPIO_WritePin(LED_PORT, LED6_PIN, GPIO_PIN_RESET);
+            HAL_Delay(2000);
+
+            // Pole 1 red, Pole 2 red
+            HAL_GPIO_WritePin(LED_PORT, LED0_PIN, GPIO_PIN_SET);
+            HAL_GPIO_WritePin(LED_PORT, LED1_PIN, GPIO_PIN_RESET);
+            HAL_GPIO_WritePin(LED_PORT, LED2_PIN, GPIO_PIN_RESET);
+            HAL_GPIO_WritePin(LED_PORT, LED4_PIN, GPIO_PIN_SET);
+            HAL_GPIO_WritePin(LED_PORT, LED5_PIN, GPIO_PIN_RESET);
+            HAL_GPIO_WritePin(LED_PORT, LED6_PIN, GPIO_PIN_RESET);
+            HAL_Delay(2000);
+
+            // Pole 1 red, Pole 2 green
+            HAL_GPIO_WritePin(LED_PORT, LED0_PIN, GPIO_PIN_SET);
+            HAL_GPIO_WritePin(LED_PORT, LED1_PIN, GPIO_PIN_RESET);
+            HAL_GPIO_WritePin(LED_PORT, LED2_PIN, GPIO_PIN_RESET);
+            HAL_GPIO_WritePin(LED_PORT, LED4_PIN, GPIO_PIN_RESET);
+            HAL_GPIO_WritePin(LED_PORT, LED5_PIN, GPIO_PIN_RESET);
+            HAL_GPIO_WritePin(LED_PORT, LED6_PIN, GPIO_PIN_SET);
+            HAL_Delay(8000);
+
+            // Pole 1 still red, but warning for Pole 2
+            HAL_GPIO_WritePin(LED_PORT, LED0_PIN, GPIO_PIN_SET);
+            HAL_GPIO_WritePin(LED_PORT, LED1_PIN, GPIO_PIN_RESET);
+            HAL_GPIO_WritePin(LED_PORT, LED2_PIN, GPIO_PIN_RESET);
+            HAL_GPIO_WritePin(LED_PORT, LED4_PIN, GPIO_PIN_RESET);
+            HAL_GPIO_WritePin(LED_PORT, LED5_PIN, GPIO_PIN_SET);
+            HAL_GPIO_WritePin(LED_PORT, LED6_PIN, GPIO_PIN_RESET);
+            HAL_Delay(2000);
+
+            // Pole 1 red, Pole 2 red
+            HAL_GPIO_WritePin(LED_PORT, LED0_PIN, GPIO_PIN_SET);
+            HAL_GPIO_WritePin(LED_PORT, LED1_PIN, GPIO_PIN_RESET);
+            HAL_GPIO_WritePin(LED_PORT, LED2_PIN, GPIO_PIN_RESET);
+            HAL_GPIO_WritePin(LED_PORT, LED4_PIN, GPIO_PIN_SET);
+            HAL_GPIO_WritePin(LED_PORT, LED5_PIN, GPIO_PIN_RESET);
+            HAL_GPIO_WritePin(LED_PORT, LED6_PIN, GPIO_PIN_RESET);
+            HAL_Delay(2000);
+
+            HAL_GPIO_WritePin(LED_PORT, LED0_PIN, GPIO_PIN_RESET);
+            HAL_GPIO_WritePin(LED_PORT, LED1_PIN, GPIO_PIN_RESET);
+            HAL_GPIO_WritePin(LED_PORT, LED2_PIN, GPIO_PIN_SET);
+            HAL_GPIO_WritePin(LED_PORT, LED4_PIN, GPIO_PIN_SET);
+            HAL_GPIO_WritePin(LED_PORT, LED5_PIN, GPIO_PIN_RESET);
+            HAL_GPIO_WritePin(LED_PORT, LED6_PIN, GPIO_PIN_RESET);
+
+            break;
+
+        case POLE1_RED_FLASHING:
+            HAL_GPIO_TogglePin(LED_PORT, LED0_PIN); // Flash Pole 1 Red
+            HAL_GPIO_TogglePin(LED_PORT, LED5_PIN); // Pole 2 Yellow
+            HAL_GPIO_WritePin(LED_PORT, LED1_PIN, GPIO_PIN_RESET);
+            HAL_GPIO_WritePin(LED_PORT, LED2_PIN, GPIO_PIN_RESET);
+            HAL_GPIO_WritePin(LED_PORT, LED4_PIN, GPIO_PIN_RESET);
+            HAL_GPIO_WritePin(LED_PORT, LED6_PIN, GPIO_PIN_RESET);
+            HAL_Delay(2000);
+            break;
+
+        case POLE2_RED_FLASHING:
+            HAL_GPIO_TogglePin(LED_PORT, LED4_PIN); // Flash Pole 2 Red
+            HAL_GPIO_TogglePin(LED_PORT, LED1_PIN); // Pole 1 Yellow
+            HAL_GPIO_WritePin(LED_PORT, LED0_PIN, GPIO_PIN_RESET);
+            HAL_GPIO_WritePin(LED_PORT, LED2_PIN, GPIO_PIN_RESET);
+            HAL_GPIO_WritePin(LED_PORT, LED5_PIN, GPIO_PIN_RESET);
+            HAL_GPIO_WritePin(LED_PORT, LED6_PIN, GPIO_PIN_RESET);
+            HAL_Delay(2000);
+            break;
+
+        case ALL_RED:
+            HAL_GPIO_TogglePin(LED_PORT, LED4_PIN); // Flash Pole 2 Red
+            HAL_GPIO_TogglePin(LED_PORT, LED0_PIN); // Flash Pole 1 Red
+            HAL_GPIO_WritePin(LED_PORT, LED1_PIN, GPIO_PIN_RESET);
+            HAL_GPIO_WritePin(LED_PORT, LED2_PIN, GPIO_PIN_RESET);
+            HAL_GPIO_WritePin(LED_PORT, LED5_PIN, GPIO_PIN_RESET);
+            HAL_GPIO_WritePin(LED_PORT, LED6_PIN, GPIO_PIN_RESET);
+            HAL_Delay(2000);
+            break;
+
+        default:
+            // Handle unexpected states
+            traffic_mode = DEFAULT_MODE;
+            break;
+    }
+}
+
+/* Show Commands over UART */
+void ShowCommands(void) {
+    UART_TransmitString(&huart2, "Traffic Light Commands:", 1);
+    UART_TransmitString(&huart2, "M/m: Main Road Is Green", 1);
+    UART_TransmitString(&huart2, "C/c: Transition Mode", 1);
+    UART_TransmitString(&huart2, "F: Main Road Is Red Flashing", 1);
+    UART_TransmitString(&huart2, "f: Secondary Road Is Red Flashing", 1);
+    UART_TransmitString(&huart2, "A/a: Both Roads Are Red", 1);
+    UART_TransmitString(&huart2, "H/h: Show commands", 1);
+}
+
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *p_htim) {
+	// Handle LED flashing with TIM3
+	if (p_htim == &htim3) {
+		if (traffic_mode == POLE1_RED_FLASHING) {
+			UpdateTrafficLights();
+		}
+	}
+}
+
+/* UART Callback Function */
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *p_huart) {
+	//Process the data received from UART.
+	switch (rxData) {
+	case 'M':
+	case 'm':
+		traffic_mode = DEFAULT_MODE;
+		UpdateTrafficLights();
+		break;
+	case 'C':
+	case 'c':
+		traffic_mode = TRANSITION;
+		break;
+	case 'F':
+		traffic_mode = POLE1_RED_FLASHING;
+		break;
+	case 'f':
+		traffic_mode = POLE2_RED_FLASHING;
+		break;
+	case 'A':
+	case 'a':
+		traffic_mode = ALL_RED;
+		break;
+	case 'H':
+	case 'h':
+		ShowCommands();
+		break;
+	}
+	HAL_UART_Receive_IT(p_huart, (uint8_t*) &rxData, 1); //Restart the Rx interrupt.
+}
+
+/* UART Transmit String */
+void UART_TransmitString(UART_HandleTypeDef *p_huart, char a_string[], int newline)
+{
+    HAL_UART_Transmit(p_huart, (uint8_t*) a_string, strlen(a_string), HAL_MAX_DELAY);
+    if (newline != 0) {
+        HAL_UART_Transmit(p_huart, (uint8_t*) "\n\r", 2, HAL_MAX_DELAY);
+    }
+}
+
+/* Measure distance using HC-SR04 */
+uint32_t measureDistance(void) {
+    uint32_t localTime = 0;
+    uint32_t startTime = 0;
+
+    // Trigger the sensor
+    HAL_GPIO_WritePin(TRIG_PORT, TRIG_PIN, GPIO_PIN_SET);
+    delayMicroseconds(10);
+    HAL_GPIO_WritePin(TRIG_PORT, TRIG_PIN, GPIO_PIN_RESET);
+
+    // Wait for ECHO pin to go HIGH
+    while (!(HAL_GPIO_ReadPin(ECHO_PORT, ECHO_PIN)));
+
+    // Record the time ECHO is HIGH
+    startTime = __HAL_TIM_GET_COUNTER(&htim2);
+    while (HAL_GPIO_ReadPin(ECHO_PORT, ECHO_PIN)) {
+        localTime = __HAL_TIM_GET_COUNTER(&htim2) - startTime;
+    }
+
+    // Calculate distance (speed of sound: 34300 cm/s)
+    return (localTime * 0.034 / 2);
+}
+
+void delayMicroseconds(uint32_t us) {
+    __HAL_TIM_SET_COUNTER(&htim2, 0);
+    while (__HAL_TIM_GET_COUNTER(&htim2) < us);
+}
