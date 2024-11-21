@@ -119,6 +119,7 @@ void App_MainLoop(void) {
     int len2 = snprintf(buffer2, sizeof(buffer2), "Distance from Sensor 2: %lu cm\r\n", distance2);
     HAL_UART_Transmit(&huart2, (uint8_t*)buffer1, len1, HAL_MAX_DELAY);
     HAL_UART_Transmit(&huart2, (uint8_t*)buffer2, len2, HAL_MAX_DELAY);
+    UART_TransmitString(&huart2, " ", 1);
 
     switch (traffic_mode) {
         case DEFAULT_MODE:
