@@ -21,5 +21,3 @@ The system includes traffic light LEDs, ultrasonic distance sensors, an LCD keyp
 - STM32CubeIDE (for embedded software development)  
 - PuTTY (or any serial communication tool for UART debugging)  
 
-## Project Structure  
-
