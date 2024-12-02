@@ -1,1 +1,1 @@
-# Embedded-Final-Project
+# Traffic-Lights-and-Crosswalk-Simulator
