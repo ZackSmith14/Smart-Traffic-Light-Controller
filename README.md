@@ -6,7 +6,7 @@ The system includes traffic light LEDs, ultrasonic distance sensors, an LCD keyp
 ## Features  
 - **Traffic Light Control:** Simulates standard traffic light sequences (red, yellow, green).  
 - **Ultrasonic Sensor Integration:** Detects vehicles approaching the intersection to dynamically adjust the light cycle.  
-- **LCD Interface:** Displays the current traffic light state and system messages.  
+- **LCD Interface:** Displays crosswalk messages.  
 - **Pushbutton Control:** Allows manual override for specific scenarios.  
 - **UART Communication:** Debugging and real-time system monitoring via a serial interface.  
 
@@ -14,8 +14,8 @@ The system includes traffic light LEDs, ultrasonic distance sensors, an LCD keyp
 - STM32 Nucleo-L476RG microcontroller  
 - HC-SR04 ultrasonic distance sensors  
 - Mini traffic light LEDs  
-- LCD Keypad Shield (HD44780 1602 display)  
-- Pushbutton module  
+- LCD module (HD44780 1602 display)  
+- Pushbutton module
 
 ## Software Tools  
 - STM32CubeIDE (for embedded software development)  
